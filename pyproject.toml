@@ -1,0 +1,22 @@
+[project]
+name = "misinfo-env"
+version = "0.1.0"
+description = "Misinformation Detection OpenEnv"
+authors = [
+  { name = "Udayasree" },
+  { name = "Hasini" },
+  { name = "Meghana" }
+]
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic",
+  "requests",
+  "datasets",
+  "openai",
+  "openenv"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
