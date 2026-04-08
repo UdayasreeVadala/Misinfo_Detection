@@ -1,146 +1,81 @@
 """
-Baseline Inference Script — Misinformation Detection Agent
-===========================================================
-Uses the OpenAI API client (gpt-4o-mini, temperature=0) for reproducible scores.
-
-Required environment variables:
-  OPENAI_API_KEY   — OpenAI API key
-  ENV_URL          — OpenEnv server URL (default: http://localhost:7860)
-  MODEL_NAME       — model to use      (default: gpt-4o-mini)
-
-STDOUT FORMAT (strictly followed by OpenEnv spec):
-  [START] task=<name> env=misinfo model=<model>
-  [STEP]  step=<n> action=<text> reward=<0.00> done=<bool> error=<msg|null>
-  [END]   success=<true|false> steps=<n> rewards=<r1,r2,...> total=<sum>
+inference.py — Misinformation Detection Agent
+===============================================
+[START] task=<name> env=misinfo model=<model>
+[STEP]  step=<n> action=<text> reward=<0.00> done=<bool> error=<msg|null>
+[END]   success=<true|false> steps=<n> rewards=<r1,r2,...>
 """
 
 import os
-import sys
-import json
 import time
 import requests
 from openai import OpenAI
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-BASE_URL         = os.getenv("ENV_URL", "http://localhost:7860")
-API_KEY          = os.getenv("OPENAI_API_KEY")
-API_BASE_URL     = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-HF_TOKEN         = os.getenv("HF_TOKEN")
-MODEL_NAME       = os.getenv("MODEL_NAME", "gpt-4o-mini")
-TASKS            = ["easy", "medium", "hard"]
+# ── Config ───────────────────────────────────────────────────────────────────
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+API_KEY      = os.getenv("HF_TOKEN")    or os.getenv("OPENAI_API_KEY", "dummy-key")
+BASE_URL     = os.getenv("ENV_URL",      "http://localhost:7860")
+TASKS        = ["easy", "medium", "hard"]
 SUCCESS_THRESHOLD = 0.5
 
-if not API_KEY:
-    print("ERROR: OPENAI_API_KEY not set.", file=sys.stderr)
-    sys.exit(1)
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+SYSTEM_PROMPT = """You are a misinformation detection expert.
+Given a news article, determine if it is real or fake.
+For easy tasks: reply with JSON {"action_type": "classify", "answer": "real" or "fake"}
+For medium tasks: reply with JSON {"action_type": "verdict", "answer": "real" or "fake", "explanation": "your reasoning"}
+For hard tasks: reply with JSON {"action_type": "verdict", "answer": "real" or "fake", "explanation": "detailed reasoning", "confidence": 0.0-1.0}
+Reply ONLY with the JSON object, nothing else."""
 
-# ---------------------------------------------------------------------------
-# System prompt — shared across all tasks
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPT = """You are an expert misinformation analyst trained in media literacy and fact-checking.
-
-Your job is to investigate news articles and determine if they are real or fake.
-
-You will receive instructions about what action to take at each step. Always respond with ONLY a JSON object — no preamble, no markdown fences.
-
-Valid action_type values:
-  "classify"      — for easy task, single-step classification
-  "question"      — ask a clarifying question (put question in "query")
-  "search"        — describe a search strategy (put query in "query")
-  "assess_source" — evaluate source credibility (put assessment in "explanation")
-  "cross_check"   — compare claims with consensus (put analysis in "explanation")
-  "verdict"       — final answer (put "real"/"fake" in "answer", reasoning in "explanation", confidence 0.0-1.0 in "confidence")
-
-Always include "action_type". Include "answer" only for classify/verdict steps.
-Include "explanation" for all medium/hard steps.
-Respond with ONLY a valid JSON object. No markdown, no backticks, no extra text."""
-
-
-def build_user_prompt(obs: dict) -> str:
-    parts = [
-        f"TASK LEVEL: {obs['task']}",
-        f"STEP: {obs['step'] + 1} of {obs['max_steps']}",
-        "",
-        f"ARTICLE:\n{obs['article_text']}",
-    ]
-    if obs.get("source"):
-        parts.append(f"\nSOURCE/SUBJECT: {obs['source']}")
-    parts += [
-        "",
-        f"INSTRUCTION: {obs['prompt']}",
-        "",
-        "Respond with ONLY a JSON object.",
-    ]
-    return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# LLM call — temperature=0 for reproducibility
-# ---------------------------------------------------------------------------
-
-def call_llm(system: str, user: str) -> dict:
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-    )
-    raw = response.choices[0].message.content.strip()
-
-    # Strip markdown fences if model adds them despite instructions
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-
-    return json.loads(raw)
-
-
-# ---------------------------------------------------------------------------
-# Run one full episode for a given task
-# ---------------------------------------------------------------------------
-
-def run_task(task: str) -> float:
-    rewards    = []
-    error_msg  = "null"
-    success    = False
-    session_id = None
+# ── Run One Task ─────────────────────────────────────────────────────────────
+def run_task(task: str):
+    rewards   = []
+    error_msg = "null"
+    success   = False
 
     print(f"[START] task={task} env=misinfo model={MODEL_NAME}", flush=True)
 
     try:
-        # 1. Reset — get session_id + initial observation
+        # Reset
         reset_resp = requests.post(f"{BASE_URL}/reset", params={"task": task})
         reset_resp.raise_for_status()
         obs = reset_resp.json()
-        session_id = obs["session_id"]
+        session_id   = obs["session_id"]
+        article_text = obs.get("article_text", "")
 
-        # 2. Run steps until done
         step_num = 0
-        while not obs.get("done", False):
-            user_prompt = build_user_prompt(obs)
+        done = False
 
+        while not done and step_num < 5:
+            # Call LLM
             try:
-                action_dict = call_llm(SYSTEM_PROMPT, user_prompt)
-            except (json.JSONDecodeError, Exception) as e:
-                # Fallback: emit a safe action so episode can continue
-                is_last = obs["step"] >= obs["max_steps"] - 1
-                action_dict = {
-                    "action_type": "verdict" if is_last else "classify",
-                    "answer":      "fake",
-                    "explanation": "Unable to parse LLM response, defaulting to fake.",
-                }
-                error_msg = f"LLM parse error: {e}"
+                completion = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": f"Task level: {task}\n\nArticle:\n{article_text[:1000]}"},
+                    ],
+                    max_tokens=200,
+                    temperature=0,
+                )
+                raw = completion.choices[0].message.content.strip()
 
+                import json, re
+                try:
+                    match = re.search(r"\{.*\}", raw, re.DOTALL)
+                    action_dict = json.loads(match.group()) if match else {}
+                except Exception:
+                    action_dict = {}
+
+                if not action_dict.get("action_type"):
+                    action_dict = {"action_type": "classify", "answer": "fake", "explanation": "fallback"}
+
+            except Exception as e:
+                error_msg = str(e).replace("\n", " ")
+                action_dict = {"action_type": "classify", "answer": "fake", "explanation": "llm error"}
+
+            # Step
             step_resp = requests.post(
                 f"{BASE_URL}/step",
                 params={"session_id": session_id},
@@ -149,27 +84,24 @@ def run_task(task: str) -> float:
             step_resp.raise_for_status()
             obs = step_resp.json()
 
-            reward      = float(obs.get("score", 0.0))
-            step_reward = reward - sum(rewards)   # score is cumulative → extract delta
-            rewards.append(step_reward)
+            reward = float(obs.get("score", 0.0))
+            done   = bool(obs.get("done", True))
+            step_reward = reward - sum(rewards)
+            rewards.append(max(step_reward, 0.0))
 
-            action_log = action_dict.get("action_type", "unknown")
+            action_log = action_dict.get("action_type", "classify")
             if action_dict.get("answer"):
                 action_log += f":{action_dict['answer']}"
 
             print(
-                f"[STEP] step={step_num + 1} "
-                f"action={action_log} "
-                f"reward={step_reward:.2f} "
-                f"done={str(obs.get('done', False)).lower()} "
-                f"error={error_msg}",
+                f"[STEP] step={step_num+1} action={action_log} "
+                f"reward={rewards[-1]:.2f} done={str(done).lower()} error={error_msg}",
                 flush=True,
             )
-            step_num  += 1
-            error_msg  = "null"
+            step_num += 1
+            error_msg = "null"
 
-        total_reward = sum(rewards)
-        success      = total_reward >= SUCCESS_THRESHOLD
+        success = sum(rewards) >= SUCCESS_THRESHOLD
 
     except Exception as e:
         error_msg = str(e).replace("\n", " ")
@@ -177,42 +109,20 @@ def run_task(task: str) -> float:
         rewards = [0.0]
 
     finally:
-        # Clean up session
-        if session_id:
-            try:
-                requests.delete(f"{BASE_URL}/session", params={"session_id": session_id})
-            except Exception:
-                pass
+        try:
+            requests.delete(f"{BASE_URL}/session", params={"session_id": session_id})
+        except Exception:
+            pass
 
-    rewards_str  = ",".join(f"{r:.2f}" for r in rewards)
-    total_reward = sum(rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} "
-        f"steps={len(rewards)} "
-        f"rewards={rewards_str} "
-        f"total={total_reward:.2f}",
+        f"[END] success={str(success).lower()} steps={len(rewards)} rewards={rewards_str}",
         flush=True,
     )
-    return total_reward
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
+# ── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"Running baseline agent: {MODEL_NAME} on {BASE_URL}", flush=True)
-    print("=" * 60, flush=True)
-    time.sleep(2)  # give server time to be ready
-
-    totals = {}
+    time.sleep(2)
     for task in TASKS:
-        score = run_task(task)
-        totals[task] = score
+        run_task(task)
         time.sleep(1)
-
-    print("=" * 60, flush=True)
-    print("BASELINE SUMMARY", flush=True)
-    for task, score in totals.items():
-        print(f"  {task:8s}: {score:.2f}", flush=True)
-    print(f"  {'AVERAGE':8s}: {sum(totals.values()) / len(totals):.2f}", flush=True)
