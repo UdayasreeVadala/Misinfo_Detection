@@ -71,6 +71,9 @@ def _get_session(session_id: str) -> MisinfoEnv:
 def ping():
     return {"status": "ok", "env": "misinfo-detection", "version": "1.0.0"}
 
+@app.get("/")
+def root():
+    return {"message": "Misinfo Detection OpenEnv is running"}
 
 @app.get("/tasks")
 def list_tasks():
