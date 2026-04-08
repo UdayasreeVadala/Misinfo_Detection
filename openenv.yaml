@@ -1,0 +1,111 @@
+name: misinfo-detection
+version: "1.0.0"
+description: >
+  An RL environment where an AI agent investigates news articles to determine
+  whether they are real or misinformation. The agent must reason through
+  evidence, assess source credibility, and give calibrated verdicts.
+  Designed for training and evaluating agents on real-world media literacy tasks.
+
+author: "misinfo-env team"
+tags:
+  - openenv
+  - misinformation
+  - fact-checking
+  - media-literacy
+  - nlp
+
+tasks:
+  - name: easy
+    description: "Classify a news headline as real or fake in a single step."
+    difficulty: easy
+    max_steps: 1
+    success_threshold: 1.0
+    reward_range: [0.0, 1.0]
+
+  - name: medium
+    description: >
+      Multi-step investigation over 3 steps: observe snippet, ask clarifying
+      question, search for evidence, then give a verdict with explanation.
+    difficulty: medium
+    max_steps: 3
+    success_threshold: 0.5
+    reward_range: [0.0, 1.0]
+
+  - name: hard
+    description: >
+      Full 5-step investigation: identify suspicious claim, search for evidence,
+      assess source credibility, cross-check with consensus, deliver a calibrated
+      verdict with confidence score. Rewards source awareness and reasoning depth.
+    difficulty: hard
+    max_steps: 5
+    success_threshold: 0.5
+    reward_range: [0.0, 1.0]
+
+observation_space:
+  type: object
+  fields:
+    task:         { type: string, description: "Task level: easy | medium | hard" }
+    step:         { type: integer, description: "Current step index (0-based)" }
+    max_steps:    { type: integer, description: "Total steps in this episode" }
+    article_text: { type: string,  description: "News article text shown to agent" }
+    source:       { type: string,  nullable: true, description: "Source/subject (hard only)" }
+    prompt:       { type: string,  description: "Instruction for the agent's next action" }
+    score:        { type: float,   description: "Cumulative reward so far (0.0–1.0)" }
+    done:         { type: boolean, description: "True when episode is complete" }
+    feedback:     { type: string,  description: "Human-readable feedback on last action" }
+
+action_space:
+  type: object
+  fields:
+    action_type:
+      type: string
+      enum: [classify, question, search, assess_source, cross_check, verdict]
+      description: "Type of action the agent is taking at this step"
+    answer:
+      type: string
+      nullable: true
+      enum: [real, fake]
+      description: "Classification verdict — required for classify/verdict action_types"
+    query:
+      type: string
+      nullable: true
+      description: "Free-text question or search query — used for question/search action_types"
+    explanation:
+      type: string
+      nullable: true
+      description: "Reasoning behind the action — required from medium difficulty onwards"
+    confidence:
+      type: float
+      nullable: true
+      description: "Agent's confidence 0.0–1.0 — used in hard verdict for calibration scoring"
+
+reward_space:
+  type: object
+  fields:
+    total:              { type: float, description: "Overall reward for this step (0.0–1.0)" }
+    correctness:        { type: float, description: "Score for correct real/fake classification" }
+    reasoning_quality:  { type: float, description: "Score for depth and logic of explanation" }
+    source_awareness:   { type: float, description: "Score for referencing source credibility" }
+    efficiency:         { type: float, description: "Bonus for calibrated confidence and good trajectory" }
+    feedback:           { type: string, description: "Detailed feedback string" }
+
+server:
+  port: 7860
+  endpoints:
+    - GET  /ping
+    - GET  /tasks
+    - POST /reset
+    - POST /step
+    - GET  /state
+    - GET  /reward
+    - DELETE /session
+
+dataset:
+  name: GonzaloA/fake_news
+  source: huggingface
+  split: train
+  pool_size: 1000   # 500 real + 500 fake
+
+reproducibility:
+  sample_selection: deterministic  # MD5(task + episode_index) → fixed article
+  llm_temperature: 0               # baseline inference uses temperature=0

@@ -1,0 +1,10 @@
+fastapi==0.111.0
+uvicorn==0.29.0
+requests==2.31.0
+datasets==2.18.0
+pydantic==2.7.1
+openai==1.25.0
+openenv
+huggingface_hub
+trasformers
+torch
