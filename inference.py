@@ -10,19 +10,16 @@ import time
 import json
 import re
 import requests
+from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or "dummy-key"
-BASE_URL     = os.getenv("ENV_URL",  "http://localhost:7860")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.environ.get("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "dummy-key")
+BASE_URL     = os.environ.get("ENV_URL",  "http://localhost:7860")
 TASKS        = ["easy", "medium", "hard"]
 SUCCESS_THRESHOLD = 0.5
 
-try:
-    from openai import OpenAI
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-except Exception:
-    client = None
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 SYSTEM_PROMPT = """You are a misinformation detection expert.
 Given a news article, determine if it is real or fake.
@@ -31,8 +28,6 @@ Reply ONLY with a JSON object like:
 answer must be exactly "real" or "fake"."""
 
 def call_llm(article: str, task: str) -> dict:
-    if client is None:
-        return {"action_type": "classify", "answer": "fake", "explanation": "no client"}
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -52,9 +47,9 @@ def call_llm(article: str, task: str) -> dict:
     return {"action_type": "classify", "answer": "fake", "explanation": "fallback"}
 
 def run_task(task: str):
-    rewards   = []
-    error_msg = "null"
-    success   = False
+    rewards    = []
+    error_msg  = "null"
+    success    = False
     session_id = None
 
     print(f"[START] task={task} env=misinfo model={MODEL_NAME}", flush=True)
