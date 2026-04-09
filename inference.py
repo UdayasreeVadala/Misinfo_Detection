@@ -6,26 +6,21 @@ inference.py — Misinformation Detection Agent
 """
 
 import os
-import sys
 import time
 import json
 import re
 import requests
+from openai import OpenAI
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+# Judges inject these — use directly
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY      = os.environ["API_KEY"]
 MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY") or "dummy-key"
 BASE_URL     = os.environ.get("ENV_URL", "http://localhost:7860")
 TASKS        = ["easy", "medium", "hard"]
 SUCCESS_THRESHOLD = 0.5
 
-# Safe OpenAI client init
-client = None
-try:
-    from openai import OpenAI
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-except Exception:
-    pass
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 SYSTEM_PROMPT = """You are a misinformation detection expert.
 Determine if the news article is real or fake.
@@ -33,23 +28,22 @@ Reply ONLY with JSON: {"action_type": "classify", "answer": "fake", "explanation
 answer must be exactly real or fake."""
 
 def call_llm(article: str, task: str) -> dict:
-    if client:
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Task:{task}\nArticle:{article[:600]}"},
-                ],
-                max_tokens=150,
-                temperature=0,
-            )
-            raw = completion.choices[0].message.content.strip()
-            match = re.search(r"\{.*?\}", raw, re.DOTALL)
-            if match:
-                return json.loads(match.group())
-        except Exception:
-            pass
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Task:{task}\nArticle:{article[:600]}"},
+            ],
+            max_tokens=150,
+            temperature=0,
+        )
+        raw = completion.choices[0].message.content.strip()
+        match = re.search(r"\{.*?\}", raw, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+    except Exception as e:
+        print(f"LLM error: {e}", flush=True)
     return {"action_type": "classify", "answer": "fake", "explanation": "fallback"}
 
 def run_task(task: str):
@@ -106,6 +100,18 @@ def run_task(task: str):
 
     finally:
         if session_id:
+            try:
+                requests.delete(f"{BASE_URL}/session", params={"session_id": session_id}, timeout=10)
+            except Exception:
+                pass
+
+    print(f"[END] success={str(success).lower()} steps={len(rewards)} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
+
+if __name__ == "__main__":
+    time.sleep(2)
+    for task in TASKS:
+        run_task(task)
+        time.sleep(1)
             try:
                 requests.delete(f"{BASE_URL}/session", params={"session_id": session_id}, timeout=10)
             except Exception:
