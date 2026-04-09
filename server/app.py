@@ -32,7 +32,7 @@ TASK_DESCRIPTIONS = {
         "steps": 1,
         "description": "Classify a news headline as real or fake in a single step.",
         "difficulty": "easy",
-        "max_score": 1.0,
+        "max_score": 0.99,
     },
     "medium": {
         "name": "medium",
@@ -42,7 +42,7 @@ TASK_DESCRIPTIONS = {
             "then give a final verdict with explanation."
         ),
         "difficulty": "medium",
-        "max_score": 1.0,
+        "max_score": 0.99,
     },
     "hard": {
         "name": "hard",
@@ -52,7 +52,7 @@ TASK_DESCRIPTIONS = {
             "assess source credibility, cross-check against consensus, deliver a calibrated verdict."
         ),
         "difficulty": "hard",
-        "max_score": 1.0,
+        "max_score": 0.99,
     },
 }
 
@@ -67,13 +67,14 @@ def _get_session(session_id: str) -> MisinfoEnv:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/")
+def root():
+    return {"message": "Misinfo Detection OpenEnv is running"}
+
 @app.get("/ping")
 def ping():
     return {"status": "ok", "env": "misinfo-detection", "version": "1.0.0"}
 
-@app.get("/")
-def root():
-    return {"message": "Misinfo Detection OpenEnv is running"}
 
 @app.get("/tasks")
 def list_tasks():
