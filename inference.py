@@ -6,44 +6,50 @@ inference.py — Misinformation Detection Agent
 """
 
 import os
+import sys
 import time
 import json
 import re
 import requests
-from openai import OpenAI
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "dummy-key")
-BASE_URL     = os.environ.get("ENV_URL",  "http://localhost:7860")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY") or "dummy-key"
+BASE_URL     = os.environ.get("ENV_URL", "http://localhost:7860")
 TASKS        = ["easy", "medium", "hard"]
 SUCCESS_THRESHOLD = 0.5
 
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+# Safe OpenAI client init
+client = None
+try:
+    from openai import OpenAI
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+except Exception:
+    pass
 
 SYSTEM_PROMPT = """You are a misinformation detection expert.
-Given a news article, determine if it is real or fake.
-Reply ONLY with a JSON object like:
-{"action_type": "classify", "answer": "real", "explanation": "reason here"}
-answer must be exactly "real" or "fake"."""
+Determine if the news article is real or fake.
+Reply ONLY with JSON: {"action_type": "classify", "answer": "fake", "explanation": "reason"}
+answer must be exactly real or fake."""
 
 def call_llm(article: str, task: str) -> dict:
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Task: {task}\n\nArticle:\n{article[:800]}"},
-            ],
-            max_tokens=150,
-            temperature=0,
-        )
-        raw = completion.choices[0].message.content.strip()
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-    except Exception:
-        pass
+    if client:
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Task:{task}\nArticle:{article[:600]}"},
+                ],
+                max_tokens=150,
+                temperature=0,
+            )
+            raw = completion.choices[0].message.content.strip()
+            match = re.search(r"\{.*?\}", raw, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
     return {"action_type": "classify", "answer": "fake", "explanation": "fallback"}
 
 def run_task(task: str):
@@ -55,53 +61,46 @@ def run_task(task: str):
     print(f"[START] task={task} env=misinfo model={MODEL_NAME}", flush=True)
 
     try:
-        reset_resp = requests.post(f"{BASE_URL}/reset", params={"task": task}, timeout=30)
-        reset_resp.raise_for_status()
-        obs        = reset_resp.json()
+        r = requests.post(f"{BASE_URL}/reset", params={"task": task}, timeout=30)
+        r.raise_for_status()
+        obs        = r.json()
         session_id = obs.get("session_id", "")
         article    = obs.get("article_text", obs.get("text", ""))
-
-        step_num = 0
-        done     = False
+        done       = False
+        step_num   = 0
 
         while not done and step_num < 5:
             action_dict = call_llm(article, task)
-
             try:
-                step_resp = requests.post(
+                sr = requests.post(
                     f"{BASE_URL}/step",
                     params={"session_id": session_id},
                     json=action_dict,
                     timeout=30,
                 )
-                step_resp.raise_for_status()
-                obs    = step_resp.json()
+                sr.raise_for_status()
+                obs    = sr.json()
                 reward = float(obs.get("score", 0.0))
                 done   = bool(obs.get("done", True))
             except Exception as e:
-                error_msg = str(e).replace("\n", " ")[:100]
-                reward = 0.0
-                done   = True
+                error_msg = str(e)[:80].replace("\n", " ")
+                reward    = 0.0
+                done      = True
 
             step_reward = max(reward - sum(rewards), 0.0)
             rewards.append(step_reward)
-
-            action_log = action_dict.get("action_type", "classify")
+            alog = action_dict.get("action_type", "classify")
             if action_dict.get("answer"):
-                action_log += f":{action_dict['answer']}"
+                alog += f":{action_dict['answer']}"
 
-            print(
-                f"[STEP] step={step_num+1} action={action_log} "
-                f"reward={step_reward:.2f} done={str(done).lower()} error={error_msg}",
-                flush=True,
-            )
+            print(f"[STEP] step={step_num+1} action={alog} reward={step_reward:.2f} done={str(done).lower()} error={error_msg}", flush=True)
             step_num  += 1
             error_msg  = "null"
 
         success = sum(rewards) >= SUCCESS_THRESHOLD
 
     except Exception as e:
-        error_msg = str(e).replace("\n", " ")[:100]
+        error_msg = str(e)[:80].replace("\n", " ")
         print(f"[STEP] step=1 action=null reward=0.00 done=true error={error_msg}", flush=True)
         rewards = [0.0]
 
@@ -112,8 +111,7 @@ def run_task(task: str):
             except Exception:
                 pass
 
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={len(rewards)} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={len(rewards)} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
 
 if __name__ == "__main__":
     time.sleep(2)
