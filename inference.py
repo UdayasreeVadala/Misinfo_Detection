@@ -2,12 +2,14 @@
 Baseline Inference Script — Misinformation Detection Agent
 ===========================================================
 Uses the OpenAI API client (gpt-4o-mini, temperature=0) for reproducible scores.
+
 Required environment variables:
   OPENAI_API_KEY   — OpenAI API key (falls back to HF_TOKEN or META_API_KEY)
   API_BASE_URL     — LLM API base URL (default: https://api.openai.com/v1)
   MODEL_NAME       — model to use (default: gpt-4o-mini)
   HF_TOKEN         — Hugging Face token (used as fallback API key)
   ENV_URL          — OpenEnv server URL (default: http://localhost:7860)
+
 STDOUT FORMAT:
   [START] task=<name> env=misinfo model=<model>
   [STEP]  step=<n> action=<text> reward=<0.00> done=<bool> error=<msg|null>
@@ -76,8 +78,11 @@ def heuristic_verdict(text: str) -> str:
 
 
 SYSTEM_PROMPT = """You are an expert misinformation analyst trained in media literacy and fact-checking.
+
 Your job is to investigate news articles and determine if they are real or fake.
+
 Always respond with ONLY a JSON object — no preamble, no markdown fences.
+
 Valid action_type values:
   "classify"      — easy task single-step classification
   "question"      — ask a clarifying question (put question in "query")
@@ -85,6 +90,7 @@ Valid action_type values:
   "assess_source" — evaluate source credibility (put assessment in "explanation")
   "cross_check"   — compare claims with consensus (put analysis in "explanation")
   "verdict"       — final answer ("real"/"fake" in "answer", reasoning in "explanation", confidence 0.0-1.0 in "confidence")
+
 Always include "action_type". Include "answer" only for classify/verdict steps.
 Include "explanation" for all medium/hard steps.
 Respond with ONLY a valid JSON object. No markdown, no backticks, no extra text."""
@@ -241,7 +247,7 @@ def run_task(task: str) -> float:
             obs = step_resp.json()
 
             reward = max(0.01, min(0.99, float(obs.get("score", 0.0))))
-            step_reward = round(reward - sum(rewards), 4)
+            step_reward = max(0.01, round(reward - sum(rewards), 4))
             rewards.append(step_reward)
 
             action_log = action_dict.get("action_type", "unknown")
