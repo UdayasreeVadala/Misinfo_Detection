@@ -19,8 +19,8 @@ tasks:
     description: "Classify a news headline as real or fake in a single step."
     difficulty: easy
     max_steps: 1
-    success_threshold: 1.0
-    reward_range: [0.0, 1.0]
+    success_threshold: 0.95
+    reward_range: [0.01, 0.99]
 
   - name: medium
     description: >
@@ -29,7 +29,7 @@ tasks:
     difficulty: medium
     max_steps: 3
     success_threshold: 0.5
-    reward_range: [0.0, 1.0]
+    reward_range: [0.01, 0.99]
 
   - name: hard
     description: >
@@ -39,7 +39,7 @@ tasks:
     difficulty: hard
     max_steps: 5
     success_threshold: 0.5
-    reward_range: [0.0, 1.0]
+    reward_range: [0.01, 0.99]
 
 observation_space:
   type: object
@@ -50,7 +50,7 @@ observation_space:
     article_text: { type: string,  description: "News article text shown to agent" }
     source:       { type: string,  nullable: true, description: "Source/subject (hard only)" }
     prompt:       { type: string,  description: "Instruction for the agent's next action" }
-    score:        { type: float,   description: "Cumulative reward so far (0.0–1.0)" }
+    score:        { type: float,   description: "Cumulative reward so far (0.01–0.99)" }
     done:         { type: boolean, description: "True when episode is complete" }
     feedback:     { type: string,  description: "Human-readable feedback on last action" }
 
@@ -82,7 +82,7 @@ action_space:
 reward_space:
   type: object
   fields:
-    total:              { type: float, description: "Overall reward for this step (0.0–1.0)" }
+    total:              { type: float, description: "Overall reward for this step (0.01–0.99)" }
     correctness:        { type: float, description: "Score for correct real/fake classification" }
     reasoning_quality:  { type: float, description: "Score for depth and logic of explanation" }
     source_awareness:   { type: float, description: "Score for referencing source credibility" }
