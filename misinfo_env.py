@@ -18,6 +18,12 @@ from datasets import load_dataset
 from pydantic import BaseModel
 from typing import Optional, Literal
 
+EPSILON_SCORE = 0.01
+
+
+def _strict_score(value: float) -> float:
+    return round(max(EPSILON_SCORE, min(0.99, value)), 2)
+
 # ---------------------------------------------------------------------------
 # Typed Models  (OpenEnv spec requires all three)
 # ---------------------------------------------------------------------------
@@ -173,7 +179,7 @@ def _reasoning_score(explanation: str, min_words: int, keywords: list[str] = Non
 
 def grade_step_easy(step: int, action: MisinfoAction, sample: dict, history: list) -> MisinfoReward:
     correct = (action.answer or "").lower().strip() == sample["label"]
-    correctness = 1.0 if correct else 0.0
+    correctness = 0.95 if correct else 0.05
 
     return MisinfoReward(
         total=correctness,
@@ -194,7 +200,7 @@ def grade_step_medium(step: int, action: MisinfoAction, sample: dict, history: l
         q = action.query or action.explanation or ""
         rq = _reasoning_score(q, min_words=5)
         r.reasoning_quality = rq
-        r.total = rq * 0.2
+        r.total = _strict_score(rq * 0.2)
         r.feedback = f"Question quality: {rq:.2f}. Good questions narrow down what makes a claim verifiable."
 
     elif step == 1:
@@ -204,7 +210,7 @@ def grade_step_medium(step: int, action: MisinfoAction, sample: dict, history: l
                       "government", "primary source", "academic", "study", "journal"]
         rq = _reasoning_score(q, min_words=8, keywords=source_kws)
         r.reasoning_quality = rq
-        r.total = rq * 0.2
+        r.total = _strict_score(rq * 0.2)
         r.feedback = f"Search strategy score: {rq:.2f}."
 
     elif step == 2:
@@ -213,9 +219,9 @@ def grade_step_medium(step: int, action: MisinfoAction, sample: dict, history: l
         expl = action.explanation or ""
         rq = _reasoning_score(expl, min_words=15)
 
-        r.correctness      = 0.6 if correct else 0.0
+        r.correctness = 0.6 if correct else 0.05
         r.reasoning_quality = rq * 0.4
-        r.total = round(r.correctness + r.reasoning_quality, 2)
+        r.total = _strict_score(r.correctness + r.reasoning_quality)
         r.feedback = (f"{'Correct' if correct else 'Wrong'} verdict. "
                       f"Explanation quality: {rq:.2f}. "
                       f"Total: {r.total:.2f}/1.0")
@@ -236,28 +242,28 @@ def grade_step_hard(step: int, action: MisinfoAction, sample: dict, history: lis
         q = action.query or action.explanation or ""
         rq = _reasoning_score(q, min_words=6)
         r.reasoning_quality = rq
-        r.total = round(rq * 0.1, 2)
+        r.total = _strict_score(rq * 0.1)
         r.feedback = f"Claim identification quality: {rq:.2f}."
 
     elif step == 1:
         q = action.query or action.explanation or ""
         rq = _reasoning_score(q, min_words=10, keywords=source_kws)
         r.reasoning_quality = rq
-        r.total = round(rq * 0.15, 2)
+        r.total = _strict_score(rq * 0.15)
         r.feedback = f"Search strategy: {rq:.2f}."
 
     elif step == 2:
         q = action.query or action.explanation or ""
         sa = _reasoning_score(q, min_words=10, keywords=source_kws)
         r.source_awareness = sa
-        r.total = round(sa * 0.15, 2)
+        r.total = _strict_score(sa * 0.15)
         r.feedback = f"Source assessment: {sa:.2f}."
 
     elif step == 3:
         q = action.query or action.explanation or ""
         rq = _reasoning_score(q, min_words=15, keywords=cross_kws)
         r.reasoning_quality = rq
-        r.total = round(rq * 0.2, 2)
+        r.total = _strict_score(rq * 0.2)
         r.feedback = f"Cross-check quality: {rq:.2f}."
 
     elif step == 4:
@@ -268,7 +274,7 @@ def grade_step_hard(step: int, action: MisinfoAction, sample: dict, history: lis
         # Calibration bonus: confident AND correct, or uncertain AND wrong
         calib_bonus = 0.1 if (correct and conf >= 0.7) or (not correct and conf < 0.5) else 0.0
 
-        r.correctness       = 0.4 if correct else 0.0
+        r.correctness = 0.4 if correct else 0.05
         r.reasoning_quality = rq * 0.3
         r.source_awareness  = 0.1 if any(k in expl.lower() for k in source_kws) else 0.0
         r.efficiency        = calib_bonus
@@ -278,10 +284,9 @@ def grade_step_hard(step: int, action: MisinfoAction, sample: dict, history: lis
         if prior_total >= 0.35:
             r.efficiency += 0.1
 
-        r.total = round(min(
-            r.correctness + r.reasoning_quality + r.source_awareness + r.efficiency,
-            1.0
-        ), 2)
+        r.total = _strict_score(
+            r.correctness + r.reasoning_quality + r.source_awareness + r.efficiency
+        )
         r.feedback = (
             f"Final verdict {'correct' if correct else 'wrong'}. "
             f"Reasoning: {rq:.2f}. Source awareness: {r.source_awareness:.2f}. "
@@ -333,7 +338,7 @@ class MisinfoEnv:
             article_text=self._sample["text"],
             source=self._sample["source"] if self.task == "hard" else None,
             prompt=self.config["step_prompts"][0],
-            score=0.0,
+            score=EPSILON_SCORE,
             done=False,
             feedback="New episode started.",
         )
@@ -371,7 +376,7 @@ class MisinfoEnv:
             article_text=self._sample["text"],
             source=self._sample["source"] if self.task == "hard" else None,
             prompt=next_prompt,
-            score=round(cumulative_score, 2),
+            score=_strict_score(cumulative_score),
             done=is_final,
             feedback=reward.feedback,
         )
@@ -391,7 +396,7 @@ class MisinfoEnv:
                 if self._step_idx < self.config["max_steps"]
                 else "Episode complete."
             ),
-            score=round(cumulative, 2),
+            score=_strict_score(cumulative),
             done=self._done,
             feedback=self._last_reward.feedback if self._last_reward else "No steps taken yet.",
         )
