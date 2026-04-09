@@ -273,7 +273,7 @@ def run_task(task: str) -> float:
         print(
             f"[STEP] step={step_num + 1} "
             f"action=null "
-            f"reward=0.00 "
+            f"reward=0.01 "
             f"done=true "
             f"error={error_msg}",
             flush=True,
