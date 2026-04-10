@@ -73,6 +73,8 @@ print(f"Dataset ready — real: {len(REAL_POOL)}, fake: {len(FAKE_POOL)}")
 # ---------------------------------------------------------------------------
 # Reproducible sample selection
 # ---------------------------------------------------------------------------
+def _strict_score(x: float) -> float:
+    return max(0.01, min(0.99, float(x)))
 
 def _get_sample(task: str, episode: int) -> dict:
     """
@@ -173,10 +175,12 @@ def _reasoning_score(explanation: str, min_words: int, keywords: list[str] = Non
 
 def grade_step_easy(step: int, action: MisinfoAction, sample: dict, history: list) -> MisinfoReward:
     correct = (action.answer or "").lower().strip() == sample["label"]
-    correctness = 1.0 if correct else 0.0
+
+    correctness = 0.99 if correct else 0.01
+    total = _strict_score(correctness)
 
     return MisinfoReward(
-        total=correctness,
+        total=total,
         correctness=correctness,
         reasoning_quality=0.0,
         source_awareness=0.0,
