@@ -114,7 +114,7 @@ def run_task(task):
                 pass
 
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={len(rewards)} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={len(rewards)} score={sum(rewards):.2f} rewards={','.join(f'{r:.2f}' for r in rewards)}", flush=True)
 
 if __name__ == "__main__":
     time.sleep(2)
