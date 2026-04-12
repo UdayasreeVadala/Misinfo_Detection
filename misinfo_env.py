@@ -51,9 +51,12 @@ FAKE_POOL = _fake[:500]
 ALL_POOL  = REAL_POOL + FAKE_POOL
 print(f"Dataset ready — real: {len(REAL_POOL)}, fake: {len(FAKE_POOL)}")
 
-def S(v):
-    """Strictly between 0 and 1"""
-    return round(max(0.01, min(0.97, float(v))), 4)
+def grade_easy(step, action, sample, history):
+    correct = (action.answer or "").lower().strip() == sample["label"]
+    score = 0.9 if correct else 0.1
+    return MisinfoReward(total=score, correctness=score,
+        reasoning_quality=0.1, source_awareness=0.1, efficiency=0.1,
+        feedback="Correct!" if correct else f"Wrong — it was {sample['label']}.")
 
 def _get_sample(task, episode):
     idx    = int(hashlib.md5(f"{task}-{episode}".encode()).hexdigest(), 16) % len(ALL_POOL)
