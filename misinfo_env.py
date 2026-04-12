@@ -46,7 +46,6 @@ print("Loading dataset...")
 _dataset  = load_dataset("GonzaloA/fake_news", split="train")
 _real     = [x for x in _dataset if x["label"] == 1]
 _fake     = [x for x in _dataset if x["label"] == 0]
-random.shuffle(_real); random.shuffle(_fake)
 REAL_POOL = _real[:500]
 FAKE_POOL = _fake[:500]
 ALL_POOL  = REAL_POOL + FAKE_POOL
