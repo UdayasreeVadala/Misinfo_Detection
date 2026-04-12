@@ -159,6 +159,17 @@ def schema():
         "state": MisinfoObservation.model_json_schema()
     }
 
+@app.post("/step")
+def step(action: MisinfoAction, session_id: str):
+    env = _get_session(session_id)
+    try:
+        obs = env.step(action)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    result = obs.model_dump()
+    result["reward"] = result["score"]  # validators reward field expect chestunnaru!
+    return result
+
 @app.post("/mcp")
 def mcp(request: dict = {}):
     return {"jsonrpc": "2.0", "id": 1, "result": {"status": "ok"}}
