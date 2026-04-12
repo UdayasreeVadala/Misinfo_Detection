@@ -357,14 +357,24 @@ class MisinfoEnv:
         is_final = (self._step_idx >= self.config["max_steps"])
         self._done = is_final
 
-        cumulative_score = sum(h["step_reward"] for h in self._history)
-        cumulative_score = round(max(0.01, min(0.99, cumulative_score)), 4)
+       cumulative_score = sum(h["step_reward"] for h in self._history)
 
-        next_prompt = (
-            self.config["step_prompts"][self._step_idx]
-            if not is_final
-            else "Episode complete."
-        )
+        # Clamp FIRST (no rounding yet)
+        cumulative_score = max(0.01, min(0.99, float(cumulative_score)))
+        
+        # Now round SAFELY without crossing 1.0
+        cumulative_score = float(f"{cumulative_score:.4f}")
+        
+        # FINAL hard safety (this is the key)
+        if cumulative_score <= 0:
+            cumulative_score = 0.01
+        elif cumulative_score >= 1:
+            cumulative_score = 0.99
+                next_prompt = (
+                    self.config["step_prompts"][self._step_idx]
+                    if not is_final
+                    else "Episode complete."
+                )
 
         return MisinfoObservation(
             task=self.task,
@@ -382,7 +392,12 @@ class MisinfoEnv:
         if self._sample is None:
             raise RuntimeError("Call reset() first.")
         raw_cumulative = sum(h["step_reward"] for h in self._history)
-        cumulative = _strict_score(raw_cumulative)
+        cumulative = max(0.01, min(0.99, float(raw_cumulative)))
+        if cumulative <= 0:
+            cumulative = 0.01
+        elif cumulative >= 1:
+            cumulative = 0.99
+
         return MisinfoObservation(
             task=self.task,
             step=self._step_idx,
