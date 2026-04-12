@@ -95,21 +95,19 @@ def reset(task: str = "easy"):
     obs = env.reset()
     _sessions[session_id] = env
 
-    return {"session_id": session_id, **obs.model_dump()}
+    return {"session_id": session_id, "reward": obs.score, **obs.model_dump()}
 
 
 @app.post("/step")
 def step(action: MisinfoAction, session_id: str):
-    """
-    Submit an action. Returns next observation with cumulative score.
-    When done=true the episode is over — call /reset to start a new one.
-    """
     env = _get_session(session_id)
     try:
         obs = env.step(action)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return obs.model_dump()
+    result = obs.model_dump()
+    result["reward"] = result["score"]  # validators reward field expect chestunnaru!
+    return result
 
 
 @app.get("/state")
@@ -158,17 +156,6 @@ def schema():
         "observation": MisinfoObservation.model_json_schema(),
         "state": MisinfoObservation.model_json_schema()
     }
-
-@app.post("/step")
-def step(action: MisinfoAction, session_id: str):
-    env = _get_session(session_id)
-    try:
-        obs = env.step(action)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    result = obs.model_dump()
-    result["reward"] = result["score"]  # validators reward field expect chestunnaru!
-    return result
 
 @app.post("/mcp")
 def mcp(request: dict = {}):
