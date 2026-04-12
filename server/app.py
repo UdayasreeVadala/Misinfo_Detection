@@ -15,7 +15,7 @@ Prevents concurrent-request state corruption.
 
 import uuid
 from fastapi import FastAPI, HTTPException
-from misinfo_env import MisinfoEnv, MisinfoAction, MisinfoObservation
+from misinfo_env import MisinfoEnv, MisinfoAction, MisinfoObservation, MisinfoReward
 
 app = FastAPI(
     title="Misinformation Detection OpenEnv",
