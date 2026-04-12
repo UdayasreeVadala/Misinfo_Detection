@@ -8,7 +8,6 @@ Endpoints:
   POST /step              — submit action, get reward + next observation
   GET  /state             — current observation for a session
   GET  /reward            — last detailed reward breakdown
-
 Session-based design: each client gets an isolated env via session_id.
 Prevents concurrent-request state corruption.
 """
@@ -140,10 +139,33 @@ def delete_session(session_id: str):
     """Clean up a session when the agent is done."""
     _sessions.pop(session_id, None)
     return {"deleted": session_id}
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+@app.get("/metadata")
+def metadata():
+    return {
+        "name": "misinfo-detection",
+        "description": "RL environment for training agents to detect misinformation."
+    }
+
+@app.get("/schema")
+def schema():
+    return {
+        "action": MisinfoAction.model_json_schema(),
+        "observation": MisinfoObservation.model_json_schema(),
+        "state": MisinfoObservation.model_json_schema()
+    }
+
+@app.post("/mcp")
+def mcp(request: dict = {}):
+    return {"jsonrpc": "2.0", "id": 1, "result": {"status": "ok"}}
+
 def main():
     import uvicorn
     uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
-
 
 if __name__ == "__main__":
     main()
