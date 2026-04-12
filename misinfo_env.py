@@ -54,7 +54,7 @@ print(f"Dataset ready — real: {len(REAL_POOL)}, fake: {len(FAKE_POOL)}")
 
 def S(v):
     """Strictly between 0 and 1"""
-    return round(max(0.01, min(0.99, float(v))), 4)
+    return round(max(0.01, min(0.97, float(v))), 4)
 
 def _get_sample(task, episode):
     idx    = int(hashlib.md5(f"{task}-{episode}".encode()).hexdigest(), 16) % len(ALL_POOL)
